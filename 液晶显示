@@ -1,0 +1,643 @@
+#include <reg52.h>	         //调用单片机头文件
+#define uchar unsigned char  //无符号字符型 宏定义	变量范围0~255
+#define uint  unsigned int	 //无符号整型 宏定义	变量范围0~65535
+
+bit flag_200ms ;
+bit flag_100ms ;
+sbit beep = P3^7;	  //蜂鸣器定义
+bit flag_beep_en;
+uint clock_value;     //用作闹钟用的
+
+uchar menu_1,menu_2;
+
+sbit relay = P3^1;
+bit flag_moshi;
+
+sbit hw_P32=P3^2;	   //红外遥控IO口的定义
+bit flag_jiema_en = 0; //红外解码成功标志位
+uchar hw_table[4];	   //红外解码数据缓冲区
+
+
+uchar key_time,flag_value;      //用做连加的中间变量
+bit key_500ms  ;
+
+//#include "key.h"
+#include "ds1302.h"
+#include "lcd1602.h"
+
+bit open1,open2,open3,open4,open5,open6,open7,open8,open9,open10,open11,open12;
+uchar fen1=0x30,shi1=0x06;	  //第1个开关的时间		 
+uchar fen2=0x30,shi2=0x07;	  //第2个开关的时间		 
+uchar fen3=0x10,shi3=0x08;	  //第3个开关的时间		       
+uchar fen4=0x20,shi4=0x08;	  //第4个开关的时间		 
+uchar fen5=0x00,shi5=0x09;	  //第5个开关的时间	 
+uchar fen6=0x10,shi6=0x09;	  //第6个开关的时间	   
+uchar fen7=0x50,shi7=0x09;	  //第7个开关的时间		
+uchar fen8=0x00,shi8=0x10;	  //第8个开关的时间		  
+uchar fen9=0x40,shi9=0x10;	  //第9个开关的时间		  
+uchar fen10=0x50,shi10=0x10;	  //第10个开关的时间   
+
+
+
+
+/******************1ms 延时函数*******************/
+void delay_1ms(uint q)
+{
+	uint i,j;
+	for(i=0;i<q;i++)
+		for(j=0;j<120;j++);
+}
+
+/*************定时器0初始化程序***************/
+void init_1602_ds1302()
+{
+	write_sfm2_ds1302(2,3,nian);	
+	write_sfm2_ds1302(2,6,yue);	
+	write_sfm2_ds1302(2,9,ri);	
+	write_sfm2_ds1302(1,2,shi);	
+	write_sfm2_ds1302(1,5,fen);	
+	write_sfm2_ds1302(1,8,miao);
+	write_sfm1(1,14,week);		
+}									   
+
+/*************定时器0初始化程序***************/
+void init_time0()	  
+{
+	EA   = 1;	 	  //开总中断
+	TMOD = 0X01;	  //定时器0、工作方式1
+	ET0  = 1;		  //开定时器0中断 
+	TR0  = 1;		  //允许定时器0定时
+}
+
+/*************开关函数***************/
+void menu_dis()
+{
+	
+	if(miao == 0) 
+	{
+		if(((fen == fen1) && (shi == shi1) && (open1 == 1)) ||	
+		   ((fen == fen3) && (shi == shi3) && (open3 == 1)) ||
+		   ((fen == fen5) && (shi == shi5) && (open5 == 1)) ||
+		   ((fen == fen7) && (shi == shi7) && (open7 == 1)) ||
+		   ((fen == fen9) && (shi == shi9) && (open9 == 1)))
+		   {			 //打开开关
+		   		relay = 0;
+				for(i=0;i<4;i++)
+				{
+			   		beep = ~beep;
+					delay_1ms(200);
+				}
+				beep = 1;
+		   }
+
+		if(((fen == fen2) && (shi == shi2) && (open2 == 1)) ||	
+		   ((fen == fen4) && (shi == shi4) && (open4 == 1)) ||
+		   ((fen == fen6) && (shi == shi6) && (open6 == 1)) ||
+		   ((fen == fen8) && (shi == shi8) && (open8 == 1)) ||
+		   ((fen == fen10) && (shi == shi10) && (open10 == 1)))
+		   {			 //关闭开关
+		   		relay = 1;
+				beep = 0;
+				delay_1ms(1000);
+				beep = 1;
+		   }
+	}
+}
+
+
+/********************独立按键程序*****************/
+uchar key_can;	 //按键值
+
+void key()	 //独立按键程序
+{
+	static uchar key_new;
+	if((P3 & 0x78) != 0x78)		//按键按下
+	{
+		delay_1ms(1);	     	//按键消抖动
+		if(((P3 & 0x78) != 0x78) && (key_new == 1))
+		{						//确认是按键按下
+			key_new = 0;
+			switch(P3 & 0x78)
+			{
+				case 0x70:  key_can = 1;  break;	 //得到按键值
+				case 0x68:  key_can = 2;  break;	 //得到按键值
+				case 0x48:  key_can = 3;  break;	 //得到按键值
+				case 0x28:  key_can = 4;  break;	 //得到按键值
+			}
+		}
+	}
+	else 
+		key_new = 1;	
+}
+
+
+/**********************设置函数************************/
+void key_with()
+{
+	if(menu_1 == 0)
+	{
+		if(key_can == 2)  
+		{
+			flag_moshi = ~flag_moshi;
+			if(flag_moshi == 0)		 //自动模式
+				write_string(2,13,"   ");	
+			if(flag_moshi == 1)		 //手动模式
+				write_string(2,13,"sd ");	
+		}
+		if(flag_moshi == 1)
+		{
+			if(key_can == 3)
+				relay  = 0;	  //开
+			if(key_can == 4)
+				relay = 1;    //关
+		}			
+	}
+	if(key_can == 1)	//设置键
+	{
+		menu_1++;
+		if(menu_1 == 1)	  //设置时间
+		{
+			menu_2 = 1;
+			write_string(1,0,"    :  :    W:  ");			
+			write_string(2,0," 20  -  -       ");	
+		}
+		menu_2 = 1;
+		if(menu_1 > 3)    //回到正常显示
+		{
+			menu_1 = 0;
+			write_guanbiao(1,2,0);	  //关闭光标
+			init_1602_dis_csf();      //初始化液晶显示		
+		}
+	}
+	if(key_can == 2)	//选择键
+	{
+		flag_200ms = 1;
+		if(menu_1 == 1)		  //设置时间
+		{
+			menu_2 ++;
+			if(menu_2 > 7)
+				menu_2 = 1;
+		}
+		if(menu_1 != 1)		 //设置
+		{
+			menu_2 ++;
+			if(menu_2 > 6)
+				menu_2 = 1;				
+		}
+	}
+	if(menu_1 == 1)
+	{
+		if(menu_2 == 1)		  //设置时
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&shi,0x24);
+			if(key_can == 4)	//减
+				set_ds1302time(0,&shi,0x24);	
+		}
+		if(menu_2 == 2)		  //设置分
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen,0x60);
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen,0x60);
+		}
+		if(menu_2 == 3)		  //设置秒
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&miao,0x60);
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&miao,0x60);
+		}
+		if(menu_2 == 4)		  //设置星期
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&week,8);
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&week,8);
+		}
+		if(menu_2 == 5)		  //设置年
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&nian,0x9A);			
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&nian,0x9A);	
+		}
+		if(menu_2 == 6)		  //设置月
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&yue,0x13);			
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&yue,0x13);	
+		}
+		if(menu_2 == 7)		  //设置日
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&ri,0x32);			
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&ri,0x32);	
+		}
+		write_sfm2_ds1302(1,2,shi);	   //显示时
+		write_sfm2_ds1302(1,5,fen);	   //显示分
+		write_sfm2_ds1302(1,8,miao);	   //显示秒
+		write_sfm1(1,14,week);	   //显示星期					
+		write_sfm2_ds1302(2,3,nian);	   //显示年
+		write_sfm2_ds1302(2,6,yue);	   //显示月
+		write_sfm2_ds1302(2,9,ri);	   //显示日
+		switch(menu_2)	   // 光标显示
+		{
+			case 1:  write_guanbiao(1,2,1);  break;
+			case 2:  write_guanbiao(1,5,1);  break;
+			case 3:  write_guanbiao(1,8,1);  break;
+			case 4:  write_guanbiao(1,14,1); break;
+			case 5:  write_guanbiao(2,3,1);  break;
+			case 6:  write_guanbiao(2,6,1);  break;
+			case 7:  write_guanbiao(2,9,1);  break;
+		}
+		write_time();	   //把时间写进去
+	}	
+/***************设置1开关时间*********************/
+	if(menu_1 == 2)
+	{	
+/////////////////////	   第1个开关时间
+		if(menu_2 == 1)		  //设置开关时
+		{
+			if(key_can == 3)	//加	
+				set_ds1302time(1,&shi1,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi1,0x24);		
+		}
+		if(menu_2 == 3)		  //设
+		{
+			if(key_can == 3)
+				open1 = ~open1;		
+			if(key_can == 4)		  
+				open1 = ~open1;		
+		}	
+	
+/////////////////////	   第2个开关时间	
+		if(menu_2 == 4)		  //设置开关分
+		{
+			if(key_can == 3)	//加	第2个开关时间
+				set_ds1302time(1,&shi2,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi2,0x24);		
+		}
+		if(menu_2 == 5)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen2,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen2,0x60);		
+		}
+		write_string(1,0,"OPEN1 00:00 Y   ");			
+		write_string(2,0," OFF1 00:00 N     ");	
+		write_sfm2_ds1302(1,6,shi1);	   //显示时
+		write_sfm2_ds1302(1,9,fen1);	   //显示分
+		write_sfm2_ds1302(2,6,shi2);	   //显示时
+		write_sfm2_ds1302(2,9,fen2);	   //显示分
+		if(open1 == 1)
+			write_string(1,11," Y ");
+		else 
+			write_string(1,11," N ");
+		if(open2 == 1)
+			write_string(2,11," Y ");
+		else 
+			write_string(2,11," N ");
+	}	
+/***************设置2开关时间*********************/
+	if(menu_1 == 3)
+	{	
+/////////////////////	   第1个开关时间
+		if(menu_2 == 1)		  //设置开关时
+		{
+			if(key_can == 3)	//加	
+				set_ds1302time(1,&shi3,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi3,0x24);		
+		}
+		if(menu_2 == 2)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen3,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen3,0x60);		
+		}	
+		if(menu_2 == 3)		  //设
+		{
+			if(key_can == 3)
+				open3 = ~open3;		
+			if(key_can == 4)		  
+				open3 = ~open3;		
+		}	
+
+/////////////////////	   第2个开关时间	
+		if(menu_2 == 4)		  //设置开关分
+		{
+			if(key_can == 3)	//加	第2个开关时间
+				set_ds1302time(1,&shi4,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi4,0x24);		
+		}
+		if(menu_2 == 5)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen4,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen4,0x60);		
+		}
+		if(menu_2 == 6)		  //设
+		{
+			if(key_can == 3)
+				open4 = ~open4;		
+			if(key_can == 4)		  
+				open4 = ~open4;		
+		}	
+		write_string(1,0,"OPEN2 00:00    ");			
+		write_string(2,0," OFF2 00:00      ");	
+		write_sfm2_ds1302(1,6,shi3);	   //显示时
+		write_sfm2_ds1302(1,9,fen3);	   //显示分
+		write_sfm2_ds1302(2,6,shi4);	   //显示时
+		write_sfm2_ds1302(2,9,fen4);	   //显示分
+		if(open3 == 1)
+			write_string(1,11," Y ");
+		else 
+			write_string(1,11," N ");
+		if(open4 == 1)
+			write_string(2,11," Y ");
+		else 
+			write_string(2,11," N ");
+	}	
+
+/***************设置4开关时间*********************/
+	if(menu_1 == 5)
+	{	
+/////////////////////	   第4个开关时间
+		if(menu_2 == 1)		  //设置开关时
+		{
+			if(key_can == 3)	//加	
+				set_ds1302time(1,&shi7,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi7,0x24);		
+		}
+		if(menu_2 == 2)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen7,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen7,0x60);		
+		}
+		if(menu_2 == 3)		  //设
+		{
+			if(key_can == 3)
+				open7 = ~open7;		
+			if(key_can == 4)		  
+				open7 = ~open7;		
+		}	
+	
+/////////////////////	   第4个开关时间	
+		if(menu_2 == 4)		  //设置开关分
+		{
+			if(key_can == 3)	//加	
+				set_ds1302time(1,&shi8,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi8,0x24);		
+		}
+		if(menu_2 == 5)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen8,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen8,0x60);		
+		}
+		if(menu_2 == 6)		  //设
+		{
+			if(key_can == 3)
+				open8 = ~open8;		
+			if(key_can == 4)		  
+				open8 = ~open8;		
+		}	
+		write_string(1,0,"OPEN4 00:00    ");			
+		write_string(2,0," OFF4 00:00      ");	
+		write_sfm2_ds1302(1,6,shi7);	   //显示时
+		write_sfm2_ds1302(2,6,shi8);	   //显示时
+		write_sfm2_ds1302(2,9,fen8);	   //显示分
+		if(open7 == 12)
+			write_string(1,11," Y ");
+		else 
+			write_string(1,11," N ");
+		if(open8 == 12)
+			write_string(2,11," Y ");
+		else 
+			write_string(2,11," N ");
+	}	
+
+/***************设置5开关时间*********************/
+	if(menu_1 == 6)
+	{	
+/////////////////////	   第5个开关时间
+		if(menu_2 == 1)		  //设置开关时
+		{
+			if(key_can == 3)	//加	
+				set_ds1302time(1,&shi9,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi9,0x24);		
+		}
+		if(menu_2 == 2)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen9,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen9,0x60);		
+		}
+		if(menu_2 == 3)		  //设
+		{
+			if(key_can == 3)
+				open9 = ~open9;		
+			if(key_can == 4)		  
+				open9 = ~open9;		
+		}	
+	
+/////////////////////	   第5个开关时间	
+		if(menu_2 == 4)		  //设置开关分
+		{
+			if(key_can == 3)	//加	
+				set_ds1302time(1,&shi10,0x24);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&shi10,0x24);		
+		}
+		if(menu_2 == 5)		  //设
+		{
+			if(key_can == 3)	//加
+				set_ds1302time(1,&fen10,0x60);		
+			if(key_can == 4)	//减	  
+				set_ds1302time(0,&fen10,0x60);		
+		}
+ 		if(menu_2 == 6)		  //设
+		{
+			if(key_can == 3)
+				open10 = ~open10;		
+			if(key_can == 4)		  
+				open10 = ~open10;		
+		}	
+
+		write_string(1,0,"OPEN5 00:00    ");			
+		write_string(2,0," OFF5 00:00    ");	
+		write_sfm2_ds1302(1,6,shi9);	   //显示时
+		write_sfm2_ds1302(2,6,shi10);	   //显示时
+		write_sfm2_ds1302(2,9,fen10);	   //显示分
+		if(open9 == 1)
+			write_string(1,11," Y ");
+		else 
+			write_string(1,11," N ");
+		if(open10 == 1)
+			write_string(2,11," Y ");
+		else 
+			write_string(2,11," N ");
+	}
+	if((menu_1 >= 2))
+	{
+  		switch(menu_2)	   // 光标显示
+		{
+			case 1:  write_guanbiao(1,6,1);  break;
+			case 2:  write_guanbiao(1,9,1);  break;
+			case 3:  write_guanbiao(1,12,1);  break;
+			case 4:  write_guanbiao(2,6,1);  break;
+			case 5:  write_guanbiao(2,9,1);  break;
+			case 6:  write_guanbiao(2,12,1);  break;
+		}	
+	}
+
+}
+
+
+/***********100us的延时函数***12M晶振**************/
+void delay_100us(uchar z)
+{				//12M
+   uchar x,y;
+   for(x=0;x<z;x++)
+     for(y=0;y<20;y++);
+}
+
+
+
+/***********红外遥控程序**************/
+void hongwai_dis()
+{
+	if(flag_jiema_en == 1)
+	{	
+		flag_jiema_en = 0;
+		beep = 0;		  		  //蜂鸣器叫一声
+		delay_1ms(50);
+		beep = 1;
+		switch(hw_table[2])
+		{
+			case 0x40:  key_can = 1;  break;  //得到按键值 
+			case 0x44:  key_can = 2;  break;   //得到按键值 
+			case 0x15:  key_can = 3;  break;   //得到按键值 
+			case 0x07:  key_can = 4;  break;   //得到按键值 
+			case 0x43:  key_can = 5; 
+						menu_1 = 0;
+						write_guanbiao(1,2,0);	  //关闭光标
+						init_1602_dis_csf();      //初始化液晶显示		
+						 break;   //得到按键值 
+		}	
+//		key_with();	
+		hw_table[2] = 0;		  //把数据清零
+	}
+}
+
+/***********外部中断0初始化程序****************/
+void init_int0()	  //外部中断0初始化程序
+{
+	EX0=1;			  //允许外部中断0中断
+	EA=1;	 		  //开总中断
+	IT0 = 1; 		  //外部中断0负跳变中断
+}
+
+
+/*****************主函数********************/
+void main()
+{	
+	beep = 0;				    //开机蜂鸣器叫一声
+	delay_1ms(200);
+	P0 = P1 = P2 = P3 = 0xff;   //初始化IO口
+	init_time0();		 //初始化定时器
+	init_ds1302();		 //ds1302初始化
+	init_1602();		 //lcd1602初始化
+	while(1)
+	{
+		hongwai_dis();
+		key();			 //按键程序
+		if(key_can < 10)
+		{
+			beep = 0;
+			delay_1ms(50);
+			beep = 1;			
+
+			key_with();	
+		}
+		
+		if(flag_200ms == 1)
+		{	
+			flag_200ms = 0;
+			if(menu_1 == 0)
+			{
+				read_time();		  //读时间
+				init_1602_ds1302();   //显示时钟
+			}
+			if(flag_moshi == 0)   //自动模式
+			if(menu_1 == 0)
+				menu_dis();	   //开关函数
+		}
+		delay_1ms(1);
+	}
+}
+
+void time0() interrupt 1
+{			 
+	static uchar value;
+	TH0 = 0X3C;
+	TL0 = 0XB0;	   //50ms
+	value ++;	   
+	if((value % 2) == 0)	 //100ms  
+		flag_100ms = 1;	 
+	if(value >= 6)			 //200ms
+	{
+		value = 0;
+		flag_200ms = 1;
+	}
+}
+
+
+/*****************红外解码程序********************/
+void int0() interrupt 0
+{
+	unsigned char i,j;
+	delay_100us(10);     //防止干扰
+	if(hw_P32 == 0)
+	{				     //引导码9+4.5=13.5ms
+		while(hw_P32 == 0); //等待9ms的低电平过完
+		delay_100us(20);  //	
+		if(hw_P32 == 1)	  //引码结束
+		{	 
+			delay_100us(12);  //  说明4.5ms的高电平已经过完 引导码已经结束
+			for(i=0;i<4;i++)
+				for(j=0;j<8;j++)
+				{
+					while(hw_P32 == 0);   //等待过完0.56ms
+					delay_100us(9);
+					if(hw_P32 == 0)		//数据0的时间=0.56+0.565=1.125ms
+					{					//数据1的时间=0.56+1.685=2.245ms
+						hw_table[i] >>= 1;    //低位在前
+					}
+					else
+					{	
+						delay_100us(10);   //0.9+1.0=1.9ms 延时让1.685高电平的时间过完
+						hw_table[i] >>= 1;    //低位在前
+					}
+				}
+			flag_jiema_en = 1;	  //红外解码成功		
+		}
+	}
+}
+
