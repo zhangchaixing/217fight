@@ -1,0 +1,57 @@
+#ifndef _KEY_H_
+#define _KEY_H_
+#include "lcd1602.h"
+
+//#define key_io P3	 //按键IO口的宏定义
+//uchar key_can;		 //按键值的变量
+//void key()
+//{
+//	static uchar key_new = 0,key_old = 0,key_value = 0;
+//	if(key_new == 0)		 //按键松开
+//	{
+//		if((key_io & 0xf0) == 0xf0)
+//			key_value ++;
+//		else 
+//			key_value = 0;
+//		if(key_value >= 5)	 //按键松开松手检测
+//		{
+//			key_value = 0;
+//			key_new = 1;
+//			flag_value = 0;		//清零
+//			key_time = 0;
+//		}
+//	}
+//	else 
+//	{
+//		if((key_io & 0xf0) != 0xf0)	 //按键按下
+//			key_value ++;
+//		else 
+//			key_value =0;
+//		if(key_value >= 5)	//按键按下消抖
+//		{
+//			key_value = 0;
+//			key_new = 0;
+//		}
+//	}
+//	key_can = 20;
+//	if((key_new == 0) && (key_old == 1))
+//	{
+//		switch(key_io & 0xf0)
+//		{
+//			case 0xe0: key_can = 4; break;	  //得到按键值 
+//			case 0xd0: key_can = 3; break;	  //得到按键值 
+//			case 0xb0: key_can = 2; break;	  //得到按键值 
+//			case 0x70: key_can = 1; break;	  //得到按键值 
+//		}
+////		write_sfm2_ds1302(1,0,key_can);
+//	}			 
+//	key_old = key_new;	 
+//}
+
+
+
+
+
+
+
+#endif
